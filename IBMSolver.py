@@ -51,17 +51,16 @@ def mfOutSim(k,v_to_h,i):
     newdata=data[:] # colon operator to make a copy and not edit original.
     newdata = paramInputFix(newdata,k,3)
     newdata = paramInputFix(newdata,v_to_h,9)
-    
+    param_text = 'parameters' + ''.join(random.SystemRandom().choice(string.ascii_uppercase + string.digits) for _ in range(5))
         # and write everything back
-    with open(model_path+'parameters.txt', 'w') as file:
+    with open(model_path+param_text, 'w') as file:
         file.writelines( newdata )
         
     if k<0.05:
         mf = np.zeros((200,n))
     else:
-        mfp, wp, mf, w = runSimMfICTPrevInts(i)
-    with open(model_path+'parameters.txt', 'w') as file:
-        file.writelines( data ) 
+        mfp, wp, mf, w = runSimMfICTPrevInts(param_text,i)
+    os.remove(param_text)
     return mf[-120,:]
 
 def runMultipleSims(mu1=1.0,mu2=1.0,k=0.1,v_to_h=7,
@@ -158,10 +157,10 @@ def runSimNoAgePrevICT(index):
     filename = '0'+filename+'.txt'
     ts, mfp, wp, ind_ages = runSimNoInput(filename=filename,finalDistribution=False,index=index) 
     return mfp,wp
-def runSimMfICTPrevInts(index): #get prevalences and intensity of both ICT and mf.
+def runSimMfICTPrevInts(param_text,index): #get prevalences and intensity of both ICT and mf.
     filename = ''.join(random.SystemRandom().choice(string.ascii_uppercase + string.digits) for _ in range(5))
     filename = '0'+filename+'.txt'
-    ts, mfp, wp, ind_ages,mf,w = runSimNoInput(filename=filename,finalDistribution=False,allDistribution=True,index=index) 
+    ts, mfp, wp, ind_ages,mf,w = runSimNoInput(filename=filename,finalDistribution=False,allDistribution=True,index=index,param_text=param_text) 
     return mfp, wp, mf, w
 def runSim(mu1=1.0,mu2=1.0,k=0.1,v_to_h=7,
                     nMDA=0,coverage=0.65,mdaFreq=12,lbdaR=1.0,v_to_hR=1.0,vecComp=1.0,
@@ -275,17 +274,19 @@ def runSimIntervention(mu1=1.0,mu2=0.29,k=0.32,v_to_h=7,nMDA=0,coverage=0.65,mda
     ts = np.concatenate((np.linspace(0,100,100),np.linspace(100,120,120)))
     return ts, mfp, wp, ages
 
-def runSimNoInput(filename='test3.txt',finalDistribution=True,mfDistribution=False,allDistribution=False,index=0):
+def runSimNoInput(filename='test3.txt',finalDistribution=True,mfDistribution=False,allDistribution=False,index=0,param_text = 'parameters.txt'):
     ''' use for parrellisation as does not change the parameter file. '''
     '''run model '''
     if finalDistribution:
-        args = str(yrs) + " " + str(n) + " " + str(filename) + " " + str(index)
+        args = str(yrs) + " " + str(n) + " " + str(filename) + " " + str(index) + " " + str(param_text)
     else:
-        args = str(120.0) + " " + str(n) + " " + str(filename) + " " + str(index)
+        args = str(120.0) + " " + str(n) + " " + str(filename) + " " + str(index) + " " + str(param_text)
     cmd = model_path+'timer'
     ccmd = cmd + " " + args
+    
     subprocess.call(ccmd,shell=True)
     '''import data '''
+    
     outtm = np.loadtxt(model_path + filename)
 
     wp = (outtm[0::6,:]+outtm[0::6,:])>0
@@ -298,6 +299,12 @@ def runSimNoInput(filename='test3.txt',finalDistribution=True,mfDistribution=Fal
         mfp = mfp[-1,:]
         mf = mf[-1,:]
     os.remove(filename)
+    
+        #mfp = np.zeros((200,200,200))
+        #wp = np.zeros((200,200,200))
+        #ages = np.zeros((200,200,200))
+        #mf = np.zeros((200,200,200))
+        #w = np.zeros((200,200,200))
     ts = np.concatenate((np.linspace(0,100,100),np.linspace(100,120,120)))
     if mfDistribution:
         return ts, mfp, wp, ages, mf

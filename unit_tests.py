@@ -6,24 +6,21 @@ Created on Fri Apr  1 16:08:31 2016
 @author: u1472179
 """
 
-import unittest
 
-class TestStringMethods(unittest.TestCase):
+import IBMSolver as ibm
+from nose import with_setup
 
-  def test_upper(self):
-      self.assertEqual('foo'.upper(), 'FOO')
+def setup():
+    pass
 
-  def test_isupper(self):
-      self.assertTrue('FOO'.isupper())
-      self.assertFalse('Foo'.isupper())
+def tear_down():
+    pass
 
-  def test_split(self):
-      s = 'hello world'
-      self.assertEqual(s.split(), ['hello', 'world'])
-      # check that s.split fails when the separator is not a string
-      with self.assertRaises(TypeError):
-          s.split(2)
+@with_setup(setup,tear_down)
+def test_data_import():
+  assert (ibm.xs.size > 0)
 
-if __name__ == '__main__':
-    unittest.main()
+
+
+
 

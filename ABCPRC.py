@@ -21,6 +21,8 @@ import IBMSolver as ibm
 
 class KeyboardInterruptError(Exception): pass
     
+
+    
 #start parralel pool
 def start_process():
     print 'Starting', multiprocessing.current_process().name
@@ -33,8 +35,8 @@ N = 200
 params = 2
 v1 = stats.gamma(1.0).rvs
 v2 = stats.gamma(100.0).rvs
-p0_true = 1.0
-p1_true = 100.0
+p0_true = v1()
+p1_true = v2()
 vs = [v1,v2] #prior distribution random variable functions.
 rw_var = 0.01
 
@@ -53,10 +55,12 @@ def biModSim(*ps):
             xs[i] = stats.norm.rvs(loc=ps[1])
     return xs
 ## 
-# Test negative binomial model.
-# ps[0] - mean of nbinom distribution
-# ps[1] - aggregation k factor.
 def nbinSim(*ps):
+    '''
+    # Test negative binomial model.
+    # ps[0] - mean of nbinom distribution
+    # ps[1] - aggregation k factor.
+    '''
     p = ps[0]/(ps[1]+ps[0])
     if p == 0:
         return np.zeros(1000)
@@ -88,35 +92,130 @@ def update_progress(progress):
     sys.stdout.write(text)
     sys.stdout.flush()
 
+class ABC(object):
+    
+    def __init__(self):
+        
+        self.parameters = Parameters(tols,vs,xs)
+        res = None
+    ##
+    # setup the ABC chain using wizard that guides you through process.
+    # setup the ABC chain defining as many things as required.
+    def setup(self,model_func=None,dist_func=None,tolerances=None,params=None,priors=None):
+        '''TODO: Check data, check dist_func '''
+        if tolerances: self.parameters.tolerances = tolerances
+        if priors: self.parameters.vs = priors
+        
+    
+    ##    
+    def fit(self):
+        '''
+        # use dist_func to estimate distribution of errors from data xs
+        # outputs tolerances.
+        '''
+        sample_size = 1000
+        es = np.zeros(sample_size)
+        for i in range(sample_size):
+            ys = fakeSim(v1(),v2())
+            es[i] = distFunc(ys,xs)
+        es = es[np.isfinite(es)]
+        if (es.size == 0):
+            raise NameError('Couldn\'t find finite tolerance values. Priors must be way off.')
+        tols = np.linspace(np.percentile(es,2.5),np.percentile(es,97.5),num=10)
+        self.parameters.tols = tols[::-1]
+        return self.parameters.tols
+    ##
+    def run(self,particle_num):
+        '''
+        # run the chain for n particles
+        '''
+        self.res = abcprcParralel(parameters=self.parameters,N=particle_num)
+    ##
+    def trace(self,plot=False):
+        '''
+        produce trace of partciles once chain has been run. inlude plot boolean
+        '''
+        if (self.res == None):
+            raise NameError('No results. Use run() to generate posterior')
+        else:
+            # TODO: add plotting functionality. Ability to return parameter fits at different
+            # tolerance levels.
+            if plot == False:
+                return self.res
+            else:
+                p1,p2 = self.res[0],self.res[1]
+    
+                x1 = pd.Series(p1[0,:], name="k")
+                x2 = pd.Series(p2[0,:], name="m")
+                plt.figure()
+                g = sns.jointplot(x=x1, y=x2,kind="scatter")#,xlim=(0,0.2),ylim=(0,21))
+                #g.ax_joint.plot(p0_true,p1_true,'ro')
+                
+    
+                x1 = pd.Series(p1[5,:], name="k")
+                x2 = pd.Series(p2[5,:], name="m")
+                plt.figure()
+                g = sns.jointplot(x=x1, y=x2,kind="scatter")#,xlim=(0,0.2),ylim=(0,21))
+                #g.ax_joint.plot(p0_true,p1_true,'ro')
+                
+                
+                x1 = pd.Series(p1[-1,:], name="k")
+                x2 = pd.Series(p2[-1,:], name="m")
+                plt.figure()
+                g = sns.jointplot(x=x1, y=x2,kind="scatter")#,xlim=(0,0.2),ylim=(0,21))
+                #g.ax_joint.plot(p0_true,p1_true,'ro')
+            
+    
+    '''
+    
+    private functions
+    
+    '''
+
+class Parameters(object):
+    '''
+    
+    Defines all necessary parameters to run abc particles including:
+        - particle number
+        - priors
+        - tolerances
+        etc.
+    
+    '''    
+    def __init__(self,tols,vs,xs):
+        self.tols = tols
+        self.particle_num = None #defined at run time so don't define now.
+        self.vs = vs
+        self.xs = xs #define data
 
 
 ##
 # Main function to implement ABC-PRC scheme.
 # input - tols : tolerances, N : no. of particles.
-def ABCPRCParralel(tols=tols,N=N):
+def abcprcParralel(parameters,N=N):
     #pool = Pool(processes=4) 
     #set-up matrices to record particles
     # structure is pRecs[i][j,k] i= parameter, j = time, k = particle.
     pRecs = []
-    pRecs.append( np.zeros((tols.size,N)) )
-    pRecs.append( np.zeros((tols.size,N)) )
+    pRecs.append( np.zeros((parameters.tols.size,N)) )
+    pRecs.append( np.zeros((parameters.tols.size,N)) )
 
 
 
-    for t, tol in enumerate(tols):
+    for t, tol in enumerate(parameters.tols):
 
         if (t==0):
             #initialise first particles from the priors v1,v2
-            pRecs[0][0,:] = vs[0](size=N)
-            pRecs[1][0,:] = vs[1](size=N)
+            pRecs[0][0,:] = parameters.vs[0](size=N)
+            pRecs[1][0,:] = parameters.vs[1](size=N)
         else:
-            func = partial(particlesF,t,pRecs[0],pRecs[1])
+            func = partial(particlesF,t,pRecs[0],pRecs[1],parameters.tols,parameters.xs)
             try:
                 #vfunc = np.vectorize(func)                
                 #res = pool.map(func, range(N))#vfunc(range(N))#
                 res = Parallel(n_jobs=num_cores)(delayed(func)(i) for i in range(N))
             except KeyboardInterrupt:
-                print 'got ^C while pool mapping, terminating the pool'
+                print 'got ^C while pool mapping'
        
             except Exception, e:
                 print 'got exception: %r' % (e,)
@@ -203,13 +302,24 @@ def ABCPRC(tols=tols,N=N):
     sys.stdout.write("\n")
     return res   
 
+
+def decorate(function):
+    ''' 
+    decorate a function to add an index, which is used to uniquely
+    identify a run when running multiprocessing
+    '''
+    def wrap_function(*args, **kwargs):
+        ii = None
+        return function(ii,*args, **kwargs)
+    return wrap_function
    
 ##
-# Calculate distance between two empirical distributions.
-# input parameters for model.
-# output: distance between generated data and data xs.
-def distFunc(p1,p2,ii):
-    ys = fakeSim(p1,p2,ii)
+def distFunc(ys,xs):
+    '''
+    # Calculate distance between two empirical distributions.
+    # input parameters for model.
+    # output: distance between generated data and data xs.
+    '''
     if (np.sum(ys)==0):
         return np.inf
     else:
@@ -218,24 +328,32 @@ def distFunc(p1,p2,ii):
         xx = np.linspace(np.min(xs),np.max(xs)) #range over data.
         return stats.entropy(kernelx(xx),qk=kernely(xx)) #KL-divergence.
 
+
 ##
-# Filter particles step.
-def particlesF(t,p1A,p2A,ii):
+def particlesF(t,p1A,p2A,tols,xs,ii):
+    '''
+    # Filter particles step.
+    '''
+    
     np.random.seed()
     sys.stdout.flush()
     a_star = np.zeros(2)
     rho = tols[t]+1.
-
-    while(rho>tols[t]):
-        try:
-            r = np.random.randint(0,high=N)
-            a_star[0] = stats.gamma.rvs(p1A[t-1,r]/rw_var,scale=rw_var)#p1A[t-1,r] + stats.norm.rvs(scale=0.1) 
-            a_star[1] = stats.gamma.rvs(p2A[t-1,r]/rw_var,scale=rw_var)#p2A[t-1,r] + stats.norm.rvs(scale=0.1)
-                              
-            rho = distFunc(a_star[0],a_star[1],ii)
+    N = tols.size
+    n = 1000
+    rejects = 0
+    while(rho>tols[t] and rejects < n):
+        #TODO: if no particles are accepted after a number of steps tolerance may be too low
+        # fix by adding condition to raise error after n particles being rejected.
+        r = np.random.randint(0,high=N)
+        a_star[0] = stats.gamma.rvs(p1A[t-1,r]/rw_var,scale=rw_var)#p1A[t-1,r] + stats.norm.rvs(scale=0.1) 
+        a_star[1] = stats.gamma.rvs(p2A[t-1,r]/rw_var,scale=rw_var)#p2A[t-1,r] + stats.norm.rvs(scale=0.1)
+        ys = fakeSim(a_star[0],a_star[1],ii)        
+        rho = distFunc(ys,xs)
+        rejects += 1
         
-        except KeyboardInterrupt:
-            raise KeyboardInterruptError()
+    if (rejects >= n):
+        raise NameError('Rejected all particles. Try increasing tolerances or increasing number of particles to reject.')
     p1 = a_star[0]
     p2 = a_star[1] 
     return p1,p2
@@ -245,14 +363,15 @@ def particlesF(t,p1A,p2A,ii):
     
 if __name__ == '__main__':
     # initial test
-    runSims = True
+    runSims = False
     if runSims:
         plt.hist(xs,bins=30)
-        res = ABCPRCParralel()
+        p = Parameters(tols,vs,xs)
+        res = abcprcParralel(p)
     p1,p2 = res[0],res[1]
     
-    x1 = pd.Series(p1[1,:], name="k")
-    x2 = pd.Series(p2[1,:], name="m")
+    x1 = pd.Series(p1[0,:], name="k")
+    x2 = pd.Series(p2[0,:], name="m")
     plt.figure()
     g = sns.jointplot(x=x1, y=x2,kind="scatter")#,xlim=(0,0.2),ylim=(0,21))
     g.ax_joint.plot(p0_true,p1_true,'ro')

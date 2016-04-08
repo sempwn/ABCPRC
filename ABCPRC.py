@@ -31,7 +31,7 @@ def start_process():
 #default parameters
 num_cores = multiprocessing.cpu_count()
 tols = np.array([1000,500,250,190,150,125,100,75,50,45,40,35,30])/1000.
-N = 200
+N = 10
 params = 2
 v1 = stats.gamma(1.0).rvs
 v2 = stats.gamma(100.0).rvs
@@ -97,7 +97,8 @@ class ABC(object):
     def __init__(self):
         
         self.parameters = Parameters(tols,vs,xs)
-        res = None
+        self.res = None
+        self.acc_dists = None
     ##
     # setup the ABC chain using wizard that guides you through process.
     # setup the ABC chain defining as many things as required.
@@ -129,7 +130,18 @@ class ABC(object):
         '''
         # run the chain for n particles
         '''
-        self.res = abcprcParralel(parameters=self.parameters,N=particle_num)
+        self.res,self.acc_dists = abcprcParralel(parameters=self.parameters,N=particle_num)
+    
+    def paramMAP(self):
+        '''
+        return the maximum a posteriori for each parameter once run.
+        Currently just using the mean. This needs to be improved.
+        '''
+        result = []
+        for r_param in self.res:
+            result.append(np.mean(r_param[-1,:]))
+        return results
+    
     ##
     def trace(self,plot=False):
         '''
@@ -151,9 +163,9 @@ class ABC(object):
                 g = sns.jointplot(x=x1, y=x2,kind="scatter")#,xlim=(0,0.2),ylim=(0,21))
                 #g.ax_joint.plot(p0_true,p1_true,'ro')
                 
-    
-                x1 = pd.Series(p1[5,:], name="k")
-                x2 = pd.Series(p2[5,:], name="m")
+                mid_t = np.floor(np.size(p1,axis=0)/2)
+                x1 = pd.Series(p1[mid_t,:], name="k")
+                x2 = pd.Series(p2[mid_t,:], name="m")
                 plt.figure()
                 g = sns.jointplot(x=x1, y=x2,kind="scatter")#,xlim=(0,0.2),ylim=(0,21))
                 #g.ax_joint.plot(p0_true,p1_true,'ro')
@@ -193,27 +205,25 @@ class Parameters(object):
 # Main function to implement ABC-PRC scheme.
 # input - tols : tolerances, N : no. of particles.
 def abcprcParralel(parameters,N=N):
-    #pool = Pool(processes=4) 
     #set-up matrices to record particles
     # structure is pRecs[i][j,k] i= parameter, j = time, k = particle.
     pRecs = []
     pRecs.append( np.zeros((parameters.tols.size,N)) )
     pRecs.append( np.zeros((parameters.tols.size,N)) )
-
-
+    dist_acc = np.zeros((parameters.tols.size,N)) #records distances accepted for each particle.
+    p_num = len(pRecs)
 
     for t, tol in enumerate(parameters.tols):
 
         if (t==0):
             #initialise first particles from the priors v1,v2
-            pRecs[0][0,:] = parameters.vs[0](size=N)
-            pRecs[1][0,:] = parameters.vs[1](size=N)
+            for i in range(p_num):
+                pRecs[i][0,:] = parameters.vs[i](size=N)
+                
         else:
-            func = partial(particlesF,t,pRecs[0],pRecs[1],parameters.tols,parameters.xs)
+            parFunc = partial(particlesF,t,pRecs,parameters.tols,parameters.xs)
             try:
-                #vfunc = np.vectorize(func)                
-                #res = pool.map(func, range(N))#vfunc(range(N))#
-                res = Parallel(n_jobs=num_cores)(delayed(func)(i) for i in range(N))
+                res = Parallel(n_jobs=num_cores)(delayed(parFunc)(i) for i in range(N))
             except KeyboardInterrupt:
                 print 'got ^C while pool mapping'
        
@@ -224,34 +234,18 @@ def abcprcParralel(parameters,N=N):
                 fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
                 print(exc_type, fname, exc_tb.tb_lineno)
                 traceback.print_exc()
-                
-            pRecs[0][t,:] = np.array([a[0] for a in res]).flatten()
-            pRecs[1][t,:] = np.array([a[1] for a in res]).flatten()
-            '''          
-            a_star = np.zeros(params)
-            for i in range(N):
-                #TODO: implenet parralel bit here
-                print 't = {}. i = {}'.format(t,i)
-                #random sample from previous alpha with perturbation
-                rho = tols[t]+1.
-                while(rho>tols[t]):
-                    r = np.random.randint(0,high=N)
-                    a_star[0] = stats.gamma.rvs(p1A[t-1,r]/rw_var,scale=rw_var)#p1A[t-1,r] + stats.norm.rvs(scale=0.1) 
-                    a_star[1] = stats.gamma.rvs(p2A[t-1,r]/rw_var,scale=rw_var)#p2A[t-1,r] + stats.norm.rvs(scale=0.1)
-                                      
-                    rho = distFunc(a_star[0],a_star[1])
-                p1A[t,i] = a_star[0]
-                p2A[t,i] = a_star[1]
-            '''
+            for i in range(p_num):    
+                pRecs[i][t,:] = np.array([a[i] for a in res]).flatten()
+            dist_acc[t,:] = np.array([a[p_num] for a in res]).flatten()
         update_progress(float(t)/len(tols))
 
-    #pool.close(); pool.join()
+
     res = pRecs
     update_progress(10.)
     sys.stdout.write("\n")
-    return res
+    return res, dist_acc
                 
-def ABCPRC(tols=tols,N=N):
+def ABCPRC(tols=tols,N=N): #deprecated. Should probably remove, unless we want a non-paralleled option?
     pool = Pool(processes=4) 
     #set-up matrices to record particles
     p1A = np.zeros((tols.size,N))
@@ -330,25 +324,25 @@ def distFunc(ys,xs):
 
 
 ##
-def particlesF(t,p1A,p2A,tols,xs,ii):
+def particlesF(t,pRecs,tols,xs,ii):
     '''
     # Filter particles step.
     '''
-    
+    p_num = len(pRecs)
     np.random.seed()
     sys.stdout.flush()
-    a_star = np.zeros(2)
+    a_star = np.zeros(p_num)
     rho = tols[t]+1.
-    N = tols.size
-    n = 1000
-    rejects = 0
+    N = np.size(pRecs[0],axis=1) #number of particles. Should check all pRec match.
+    n = 1000 #upper bound for number of samles rejected before raising error.
+    rejects = 0 #count number of rejects.
     while(rho>tols[t] and rejects < n):
-        #TODO: if no particles are accepted after a number of steps tolerance may be too low
+        #FIXED: if no particles are accepted after a number of steps tolerance may be too low
         # fix by adding condition to raise error after n particles being rejected.
         r = np.random.randint(0,high=N)
-        a_star[0] = stats.gamma.rvs(p1A[t-1,r]/rw_var,scale=rw_var)#p1A[t-1,r] + stats.norm.rvs(scale=0.1) 
-        a_star[1] = stats.gamma.rvs(p2A[t-1,r]/rw_var,scale=rw_var)#p2A[t-1,r] + stats.norm.rvs(scale=0.1)
-        ys = fakeSim(a_star[0],a_star[1],ii)        
+        for i in range(p_num):
+            a_star[i] = stats.gamma.rvs(pRecs[i][t-1,r]/rw_var,scale=rw_var)#p1A[t-1,r] + stats.norm.rvs(scale=0.1) 
+        ys = fakeSim(a_star[0],a_star[1],ii)  
         rho = distFunc(ys,xs)
         rejects += 1
         
@@ -356,18 +350,19 @@ def particlesF(t,p1A,p2A,tols,xs,ii):
         raise NameError('Rejected all particles. Try increasing tolerances or increasing number of particles to reject.')
     p1 = a_star[0]
     p2 = a_star[1] 
-    return p1,p2
+
+    return p1,p2, rho #return parameters and accepted distance.
 
 
     
     
 if __name__ == '__main__':
     # initial test
-    runSims = False
+    runSims = True
     if runSims:
         plt.hist(xs,bins=30)
         p = Parameters(tols,vs,xs)
-        res = abcprcParralel(p)
+        res,accepted_dists = abcprcParralel(p,N=100)
     p1,p2 = res[0],res[1]
     
     x1 = pd.Series(p1[0,:], name="k")

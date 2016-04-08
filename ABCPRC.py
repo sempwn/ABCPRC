@@ -68,9 +68,9 @@ def nbinSim(*ps):
         return stats.nbinom(n=ps[0],p=p).rvs(size=1000)
     
 #define Sim function:
-fakeSim = nbinSim#ibm.mfOutSim#
+sim = nbinSim#ibm.mfOutSim#
 #input data.
-xs = fakeSim(p0_true,p1_true,0)
+xs = sim(p0_true,p1_true,0)
 
 
 def update_progress(progress):
@@ -96,16 +96,19 @@ class ABC(object):
     
     def __init__(self):
         
-        self.parameters = Parameters(tols,vs,xs)
+        self.parameters = Parameters(tols,vs,xs,sim)
         self.res = None
         self.acc_dists = None
     ##
-    # setup the ABC chain using wizard that guides you through process.
-    # setup the ABC chain defining as many things as required.
     def setup(self,model_func=None,dist_func=None,tolerances=None,params=None,priors=None):
+        '''
+        setup the ABC chain using wizard that guides you through process.
+        setup the ABC chain defining as many things as required.
+        '''        
         '''TODO: Check data, check dist_func '''
         if tolerances: self.parameters.tolerances = tolerances
         if priors: self.parameters.vs = priors
+        if model_func: self.parameters.sim = model_func
         
     
     ##    
@@ -117,7 +120,7 @@ class ABC(object):
         sample_size = 1000
         es = np.zeros(sample_size)
         for i in range(sample_size):
-            ys = fakeSim(v1(),v2())
+            ys = self.parameters.sim(v1(),v2())
             es[i] = distFunc(ys,xs)
         es = es[np.isfinite(es)]
         if (es.size == 0):
@@ -137,9 +140,9 @@ class ABC(object):
         return the maximum a posteriori for each parameter once run.
         Currently just using the mean. This needs to be improved.
         '''
-        result = []
+        results = []
         for r_param in self.res:
-            result.append(np.mean(r_param[-1,:]))
+            results.append(np.mean(r_param[-1,:]))
         return results
     
     ##
@@ -194,11 +197,12 @@ class Parameters(object):
         etc.
     
     '''    
-    def __init__(self,tols,vs,xs):
+    def __init__(self,tols,vs,xs,sim):
         self.tols = tols
         self.particle_num = None #defined at run time so don't define now.
         self.vs = vs
         self.xs = xs #define data
+        self.sim = sim #define simulation function.
 
 
 ##
@@ -221,7 +225,7 @@ def abcprcParralel(parameters,N=N):
                 pRecs[i][0,:] = parameters.vs[i](size=N)
                 
         else:
-            parFunc = partial(particlesF,t,pRecs,parameters.tols,parameters.xs)
+            parFunc = partial(particlesF,t,pRecs,parameters.tols,parameters.xs,parameters.sim)
             try:
                 res = Parallel(n_jobs=num_cores)(delayed(parFunc)(i) for i in range(N))
             except KeyboardInterrupt:
@@ -324,7 +328,7 @@ def distFunc(ys,xs):
 
 
 ##
-def particlesF(t,pRecs,tols,xs,ii):
+def particlesF(t,pRecs,tols,xs,sim,ii):
     '''
     # Filter particles step.
     '''
@@ -342,7 +346,7 @@ def particlesF(t,pRecs,tols,xs,ii):
         r = np.random.randint(0,high=N)
         for i in range(p_num):
             a_star[i] = stats.gamma.rvs(pRecs[i][t-1,r]/rw_var,scale=rw_var)#p1A[t-1,r] + stats.norm.rvs(scale=0.1) 
-        ys = fakeSim(a_star[0],a_star[1],ii)  
+        ys = sim(a_star[0],a_star[1],ii)  
         rho = distFunc(ys,xs)
         rejects += 1
         
@@ -361,7 +365,7 @@ if __name__ == '__main__':
     runSims = True
     if runSims:
         plt.hist(xs,bins=30)
-        p = Parameters(tols,vs,xs)
+        p = Parameters(tols,vs,xs,sim)
         res,accepted_dists = abcprcParralel(p,N=100)
     p1,p2 = res[0],res[1]
     

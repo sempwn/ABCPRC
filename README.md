@@ -10,22 +10,22 @@ python setup.py install
 ##Introduction
 
 Import as
-'''python
+```python
 import ABCPRC as prc
-'''
+```
 A fitting class is setup using
-'''python
+```python
 m = prc.ABC()
-'''
+```
 You can then either use the built-in tolerances or fit your own using
-'''python
+```python
 m.fit()
-'''
+```
 The fitting can then be performed using
-'''python
+```python
 m.run(num_particles)
-'''
+```
 and the results shown (using seaborn),
-'''python
+```python
 m.trace(plot=True)
-'''
+```

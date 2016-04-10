@@ -28,4 +28,8 @@ m.run(num_particles)
 and the results shown (using seaborn),
 ```python
 m.trace(plot=True)
+<<<<<<< HEAD
 ```
+=======
+```
+>>>>>>> origin/master

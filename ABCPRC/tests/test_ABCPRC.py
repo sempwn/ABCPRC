@@ -18,11 +18,11 @@ def setup():
 def tear_down():
     pass
 
-@raises(ImportError)
+
 def test_load_package():
     import ABCPRC
 
-@with_setup(setup,tear_down)
+@with_setup(setup)
 def test_data_import():
     m = prc.ABC()
     assert (m.parameters.xs.size > 0)
@@ -32,6 +32,16 @@ def test_data_import():
 def test_run_before_trace():
     m = prc.ABC()
     m.trace()
+
+@raises(NameError)
+def test_run_before_paramMAP():
+    m = prc.ABC()
+    m.paramMAP()
+
+@raises(NameError)
+def test_run_before_fitSummary():
+    m = prc.ABC()
+    m.fitSummary()
 
 
 

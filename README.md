@@ -28,8 +28,18 @@ m.run(num_particles)
 and the results shown (using seaborn),
 ```python
 m.trace(plot=True)
-<<<<<<< HEAD
 ```
-=======
+
+##Testing
+
+Tests are run using the ```python nose2 ``` package. To install run
+```python 
+pip install nose2
+pip install cov-core
 ```
->>>>>>> origin/master
+and tests can be performed running the command
+
+```python
+nose2 --with-coverage
+```
+

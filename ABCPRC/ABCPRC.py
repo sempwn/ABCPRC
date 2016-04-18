@@ -96,7 +96,7 @@ class ABC(object):
         self.res = None
         self.acc_dists = None
     ##
-    def setup(self,modelFunc=None,distFunc=None,tolerances=None,params=None,priors=None):
+    def setup(self,modelFunc=None,distFunc=None,tolerances=None,xs=None,priors=None):
         '''
         setup the ABC chain using wizard that guides you through process.
         setup the ABC chain defining as many things as required.
@@ -106,20 +106,24 @@ class ABC(object):
         if priors: self.parameters.vs = priors
         if modelFunc: self.parameters.sim = modelFunc
         if distFunc: self.parameters.distFunc = distFunc
+        if xs: self.parameters.xs = xs
         
     
     ##    
-    def fit(self):
+    def fit(self,sample_size = 1000):
         '''
-        # use dist_func to estimate distribution of errors from data xs
-        # outputs tolerances.
+        use dist_func to estimate distribution of errors from data xs
+        outputs tolerances.
         '''
-        sample_size = 1000
+        
         es = np.zeros(sample_size)
         for i in range(sample_size):
-            ys = self.parameters.sim(v1(),v2())
-            es[i] = distFunc(ys,xs)
+            ps = [v() for v in self.parameters.vs]
+            ys = self.parameters.sim(*ps)
+            es[i] = self.parameters.distFunc(ys,self.parameters.xs)
+            update_progress(float(i+1)/sample_size)
         es = es[np.isfinite(es)]
+
         if (es.size == 0):
             raise NameError('Couldn\'t find finite tolerance values. Priors must be way off.')
         tols = np.linspace(np.percentile(es,2.5),np.percentile(es,97.5),num=10)
@@ -137,13 +141,33 @@ class ABC(object):
         return the maximum a posteriori for each parameter once run.
         Currently just using the mean. This needs to be improved.
         '''
+        if self.res == None:
+            raise NameError('Need to run first before returning results')
         results = []
         for r_param in self.res:
             results.append(np.mean(r_param[-1,:]))
         return results
+
+    def fitSummary(self,percentiles=[2.5,97.5]):
+        '''
+        return the maximum a posteriori for each parameter once run.
+        Currently just using the mean. This needs to be improved.
+        '''
+        if self.res == None:
+            raise NameError('Need to run first before returning results')
+        results = {'p':[],'lc':[],'uc':[]}
+        for i,r_param in enumerate(self.res):
+            p = np.median(r_param[-1,:])
+            lc = np.percentile(r_param[-1,:],percentiles[0])
+            uc = np.percentile(r_param[-1,:],percentiles[1])
+            results['p'].append(p)
+            results['lc'].append(lc)
+            results['uc'].append(uc)
+            print 'param {} : {} ({},{}) '.format(i,p,lc,uc)
+        return results
     
     ##
-    def trace(self,plot=False):
+    def trace(self,plot=False,tol=-1):
         '''
         produce trace of partciles once chain has been run. inlude plot boolean
         '''
@@ -155,27 +179,7 @@ class ABC(object):
             if plot == False:
                 return self.res
             else:
-                p1,p2 = self.res[0],self.res[1]
-    
-                x1 = pd.Series(p1[0,:], name="k")
-                x2 = pd.Series(p2[0,:], name="m")
-                plt.figure()
-                g = sns.jointplot(x=x1, y=x2,kind="scatter")#,xlim=(0,0.2),ylim=(0,21))
-                #g.ax_joint.plot(p0_true,p1_true,'ro')
-                
-                mid_t = np.floor(np.size(p1,axis=0)/2)
-                x1 = pd.Series(p1[mid_t,:], name="k")
-                x2 = pd.Series(p2[mid_t,:], name="m")
-                plt.figure()
-                g = sns.jointplot(x=x1, y=x2,kind="scatter")#,xlim=(0,0.2),ylim=(0,21))
-                #g.ax_joint.plot(p0_true,p1_true,'ro')
-                
-                
-                x1 = pd.Series(p1[-1,:], name="k")
-                x2 = pd.Series(p2[-1,:], name="m")
-                plt.figure()
-                g = sns.jointplot(x=x1, y=x2,kind="scatter")#,xlim=(0,0.2),ylim=(0,21))
-                #g.ax_joint.plot(p0_true,p1_true,'ro')
+                matPlot(self.res,tol=tol)
             
     
     '''
@@ -210,8 +214,8 @@ def abcprcParralel(parameters,N=N):
     #set-up matrices to record particles
     # structure is pRecs[i][j,k] i= parameter, j = time, k = particle.
     pRecs = []
-    pRecs.append( np.zeros((parameters.tols.size,N)) )
-    pRecs.append( np.zeros((parameters.tols.size,N)) )
+    for i in range(len(parameters.vs)):
+        pRecs.append( np.zeros((parameters.tols.size,N)) )
     dist_acc = np.zeros((parameters.tols.size,N)) #records distances accepted for each particle.
     p_num = len(pRecs)
 
@@ -345,16 +349,39 @@ def particlesF(t,pRecs,tols,xs,sim,distFunc,ii):
         r = np.random.randint(0,high=N)
         for i in range(p_num):
             a_star[i] = stats.gamma.rvs(pRecs[i][t-1,r]/rw_var,scale=rw_var)#p1A[t-1,r] + stats.norm.rvs(scale=0.1) 
-        ys = sim(a_star[0],a_star[1],ii)  
+        ys = sim(*a_star)#sim(a_star[0],a_star[1],ii)  
         rho = distFunc(ys,xs)
         rejects += 1
         
     if (rejects >= n):
         raise NameError('Rejected all particles. Try increasing tolerances or increasing number of particles to reject.')
-    p1 = a_star[0]
-    p2 = a_star[1] 
 
-    return p1,p2, rho #return parameters and accepted distance.
+    res = a_star.tolist()
+    res.append(rho)
+    return res #return parameters and accepted distance.
+
+def matPlot(res,tol=-1):
+    pLen = len(res)
+    plt.close('all')
+    f, ax = plt.subplots(pLen,pLen)
+    ind = 0
+    ranges=[]
+    for i in range(pLen):
+        ranges.append([np.min(res[i][tol,:]),np.max(res[i][tol,:])])
+        
+    for i in range(pLen):
+        for j in range(pLen):
+            if (i == j):
+                ax[i][j].hist(res[i][tol,:],range=ranges[i])
+            else:
+                ax[i][j].plot(res[j][tol,:],res[i][tol,:],'bo')
+                ax[i][j].set_xlim(ranges[j])
+                ax[i][j].set_ylim(ranges[i])
+            if i!=(pLen-1):
+                plt.setp(ax[i][j].get_xticklabels(),visible=False)
+            if j!=0:
+                plt.setp(ax[i][j].get_yticklabels(),visible=False)
+            ind += 1
 
 
     

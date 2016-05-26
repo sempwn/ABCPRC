@@ -1,7 +1,7 @@
 """
-Implementation of ABC-PRC code 
+Implementation of ABC-PRC code
 reference: Parameter inference in small world network disease models with approximate Bayesian Computational methods
-Walker et al. Physica A 2010 
+Walker et al. Physica A 2010
 Created on Thu March 7 14:33:33 2016
 
 @author: Mike Irvine (Sempwn)
@@ -14,16 +14,16 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 from multiprocessing import Pool
-from joblib import Parallel, delayed 
+from joblib import Parallel, delayed
 import multiprocessing
 from functools import partial
 
 
-    
 
-    
-  
-       
+
+
+
+
 #default parameters
 num_cores = multiprocessing.cpu_count()
 tols = np.array([1000,500,250,190,150,125,100,75,50,45,40,35,30])/1000.
@@ -50,7 +50,7 @@ def biModSim(*ps):
         else:
             xs[i] = stats.norm.rvs(loc=ps[1])
     return xs
-## 
+##
 def nbinSim(*ps):
     '''
     # Test negative binomial model.
@@ -62,7 +62,7 @@ def nbinSim(*ps):
         return np.zeros(1000)
     else:
         return stats.nbinom(n=ps[0],p=p).rvs(size=1000)
-    
+
 #define Sim function:
 sim = nbinSim#ibm.mfOutSim#
 #input data.
@@ -89,9 +89,9 @@ def update_progress(progress):
     sys.stdout.flush()
 
 class ABC(object):
-    
+
     def __init__(self):
-        
+
         self.parameters = Parameters(tols,vs,xs,sim,distFunc)
         self.res = None
         self.acc_dists = None
@@ -100,22 +100,22 @@ class ABC(object):
         '''
         setup the ABC chain using wizard that guides you through process.
         setup the ABC chain defining as many things as required.
-        '''        
+        '''
         '''TODO: Check data, check dist_func '''
-        if tolerances: self.parameters.tolerances = tolerances
-        if priors: self.parameters.vs = priors
-        if modelFunc: self.parameters.sim = modelFunc
-        if distFunc: self.parameters.distFunc = distFunc
-        if xs: self.parameters.xs = xs
-        
-    
-    ##    
+        if (tolerances!=None): self.parameters.tolerances = tolerances
+        if (priors!=None): self.parameters.vs = priors
+        if (modelFunc!=None): self.parameters.sim = modelFunc
+        if (distFunc!=None): self.parameters.distFunc = distFunc
+        if (xs!=None): self.parameters.xs = xs
+
+
+    ##
     def fit(self,sample_size = 1000):
         '''
         use dist_func to estimate distribution of errors from data xs
         outputs tolerances.
         '''
-        
+
         es = np.zeros(sample_size)
         for i in range(sample_size):
             ps = [v() for v in self.parameters.vs]
@@ -135,7 +135,7 @@ class ABC(object):
         # run the chain for n particles
         '''
         self.res,self.acc_dists = abcprcParralel(parameters=self.parameters,N=particle_num)
-    
+
     def paramMAP(self):
         '''
         return the maximum a posteriori for each parameter once run.
@@ -165,7 +165,7 @@ class ABC(object):
             results['uc'].append(uc)
             print 'param {} : {} ({},{}) '.format(i,p,lc,uc)
         return results
-    
+
     ##
     def trace(self,plot=False,tol=-1):
         '''
@@ -180,24 +180,47 @@ class ABC(object):
                 return self.res
             else:
                 matPlot(self.res,tol=tol)
-            
-    
+
+    def save(self,filename):
+        '''
+        save main results from runs to file as .npz. Use load to load file.
+        '''
+        if (self.res == None):
+            raise NameError('Can\'t save without results. Use run() first before saving.')
+
+        np.savez(filename,res=self.res,acc_dists=self.acc_dists,
+                 tolerances=self.parameters.tols)
+
+    def load(self,filename):
+        '''
+        load file that's been formatted using save.
+        '''
+        if os.path.isfile(filename+'.npz'):
+            out = np.load(filename+'.npz')
+        else:
+            raise NameError('Filename does not exist.')
+
+        self.res = out['res']
+        self.acc_dists = out['acc_dists']
+        self.parameters.tols = out['tolerances']
+
+
     '''
-    
+
     private functions
-    
+
     '''
 
 class Parameters(object):
     '''
-    
+
     Defines all necessary parameters to run abc particles including:
         - particle number
         - priors
         - tolerances
         etc.
-    
-    '''    
+
+    '''
     def __init__(self,tols,vs,xs,sim,distFunc):
         self.tols = tols
         self.particle_num = None #defined at run time so don't define now.
@@ -225,7 +248,7 @@ def abcprcParralel(parameters,N=N):
             #initialise first particles from the priors v1,v2
             for i in range(p_num):
                 pRecs[i][0,:] = parameters.vs[i](size=N)
-                
+
         else:
             parFunc = partial(particlesF,t,pRecs,parameters.tols,parameters.xs,
                               parameters.sim,parameters.distFunc)
@@ -233,7 +256,7 @@ def abcprcParralel(parameters,N=N):
                 res = Parallel(n_jobs=num_cores)(delayed(parFunc)(i) for i in range(N))
             except KeyboardInterrupt:
                 print 'got ^C while pool mapping'
-       
+
             except Exception, e:
                 print 'got exception: %r' % (e,)
 
@@ -241,7 +264,7 @@ def abcprcParralel(parameters,N=N):
                 fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
                 print(exc_type, fname, exc_tb.tb_lineno)
                 traceback.print_exc()
-            for i in range(p_num):    
+            for i in range(p_num):
                 pRecs[i][t,:] = np.array([a[i] for a in res]).flatten()
             dist_acc[t,:] = np.array([a[p_num] for a in res]).flatten()
         update_progress(float(t)/len(tols))
@@ -251,35 +274,35 @@ def abcprcParralel(parameters,N=N):
     update_progress(10.)
     sys.stdout.write("\n")
     return res, dist_acc
-                
+
 def ABCPRC(tols=tols,N=N): #deprecated. Should probably remove, unless we want a non-paralleled option?
-    pool = Pool(processes=4) 
+    pool = Pool(processes=4)
     #set-up matrices to record particles
     p1A = np.zeros((tols.size,N))
     p2A = np.zeros((tols.size,N))
-    
-    
-    
+
+
+
     for t, tol in enumerate(tols):
-    
+
         if (t==0):
             #initialise first particles from the priors vs
             p1A[0,:] = vs[0](size=N)
             p2A[0,:] = vs[1](size=N)
         else:
             #func = partial(particlesF, t,p1A,p2A)
-            
-            #vfunc = np.vectorize(func)                
+
+            #vfunc = np.vectorize(func)
             #res = vfunc(range(N))#map(func, range(N))
-        
+
             #e = sys.exc_info()[0]
             #pool.close(); pool.join()
             #print 'Errored so closed pool.'
             #print e
-            
+
             #p1A[t,:] = np.array([a for a,b in res]).flatten()
             #p2A[t,:] = np.array([b for a,b in res]).flatten()
-                  
+
             a_star = np.zeros(params)
             for i in range(N):
                 #TODO: implenet parralel bit here
@@ -288,24 +311,24 @@ def ABCPRC(tols=tols,N=N): #deprecated. Should probably remove, unless we want a
                 rho = tols[t]+1.
                 while(rho>tols[t]):
                     r = np.random.randint(0,high=N)
-                    a_star[0] = stats.gamma.rvs(p1A[t-1,r]/rw_var,scale=rw_var)#p1A[t-1,r] + stats.norm.rvs(scale=0.1) 
+                    a_star[0] = stats.gamma.rvs(p1A[t-1,r]/rw_var,scale=rw_var)#p1A[t-1,r] + stats.norm.rvs(scale=0.1)
                     a_star[1] = stats.gamma.rvs(p2A[t-1,r]/rw_var,scale=rw_var)#p2A[t-1,r] + stats.norm.rvs(scale=0.1)
-                                      
+
                     rho = distFunc(a_star[0],a_star[1],0)
                 p1A[t,i] = a_star[0]
                 p2A[t,i] = a_star[1]
-            
+
         update_progress(float(t)/len(tols))
-    
+
     pool.close(); pool.join()
     res = {'p1': p1A, 'p2' : p2A}
     update_progress(10.)
     sys.stdout.write("\n")
-    return res   
+    return res
 
 
 def decorate(function):
-    ''' 
+    '''
     decorate a function to add an index, which is used to uniquely
     identify a run when running multiprocessing
     '''
@@ -313,7 +336,7 @@ def decorate(function):
         ii = None
         return function(ii,*args, **kwargs)
     return wrap_function
-   
+
 ##
 def distFunc(ys,xs):
     '''
@@ -348,11 +371,11 @@ def particlesF(t,pRecs,tols,xs,sim,distFunc,ii):
         # fix by adding condition to raise error after n particles being rejected.
         r = np.random.randint(0,high=N)
         for i in range(p_num):
-            a_star[i] = stats.gamma.rvs(pRecs[i][t-1,r]/rw_var,scale=rw_var)#p1A[t-1,r] + stats.norm.rvs(scale=0.1) 
-        ys = sim(*a_star)#sim(a_star[0],a_star[1],ii)  
+            a_star[i] = stats.gamma.rvs(pRecs[i][t-1,r]/rw_var,scale=rw_var)#p1A[t-1,r] + stats.norm.rvs(scale=0.1)
+        ys = sim(*a_star)#sim(a_star[0],a_star[1],ii)
         rho = distFunc(ys,xs)
         rejects += 1
-        
+
     if (rejects >= n):
         raise NameError('Rejected all particles. Try increasing tolerances or increasing number of particles to reject.')
 
@@ -368,7 +391,7 @@ def matPlot(res,tol=-1):
     ranges=[]
     for i in range(pLen):
         ranges.append([np.min(res[i][tol,:]),np.max(res[i][tol,:])])
-        
+
     for i in range(pLen):
         for j in range(pLen):
             if (i == j):
@@ -382,7 +405,3 @@ def matPlot(res,tol=-1):
             if j!=0:
                 plt.setp(ax[i][j].get_yticklabels(),visible=False)
             ind += 1
-
-
-    
-    

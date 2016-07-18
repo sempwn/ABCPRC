@@ -57,11 +57,11 @@ def nbinSim(*ps):
     # ps[0] - mean of nbinom distribution
     # ps[1] - aggregation k factor.
     '''
-    p = ps[0]/(ps[1]+ps[0])
+    p = ps[1]/(ps[1]+ps[0])
     if p == 0:
         return np.zeros(1000)
     else:
-        return stats.nbinom(n=ps[0],p=p).rvs(size=1000)
+        return stats.nbinom(n=ps[1],p=p).rvs(size=1000)
 
 #define Sim function:
 sim = nbinSim#ibm.mfOutSim#
@@ -102,11 +102,11 @@ class ABC(object):
         setup the ABC chain defining as many things as required.
         '''
         '''TODO: Check data, check dist_func '''
-        if (tolerances!=None): self.parameters.tolerances = tolerances
-        if (priors!=None): self.parameters.vs = priors
-        if (modelFunc!=None): self.parameters.sim = modelFunc
-        if (distFunc!=None): self.parameters.distFunc = distFunc
-        if (xs!=None): self.parameters.xs = xs
+        if (tolerances is not None): self.parameters.tolerances = tols
+        if (priors is not None): self.parameters.vs = priors
+        if (modelFunc is not None): self.parameters.sim = modelFunc
+        if (distFunc is not None): self.parameters.distFunc = distFunc
+        if (xs is not None): self.parameters.xs = xs
 
 
     ##
@@ -341,7 +341,7 @@ def decorate(function):
 def distFunc(ys,xs):
     '''
     # Calculate distance between two empirical distributions.
-    # input parameters for model.
+    # input: raw data.
     # output: distance between generated data and data xs.
     '''
     if (np.sum(ys)==0):
@@ -371,7 +371,10 @@ def particlesF(t,pRecs,tols,xs,sim,distFunc,ii):
         # fix by adding condition to raise error after n particles being rejected.
         r = np.random.randint(0,high=N)
         for i in range(p_num):
-            a_star[i] = stats.gamma.rvs(pRecs[i][t-1,r]/rw_var,scale=rw_var)#p1A[t-1,r] + stats.norm.rvs(scale=0.1)
+            if pRecs[i][t-1,r] > 0:
+                a_star[i] = stats.gamma.rvs(pRecs[i][t-1,r]/rw_var,scale=rw_var)#p1A[t-1,r] + stats.norm.rvs(scale=0.1)
+            else:
+                a_star[i] = stats.expon(scale=10E-3).rvs()
         ys = sim(*a_star)#sim(a_star[0],a_star[1],ii)
         rho = distFunc(ys,xs)
         rejects += 1

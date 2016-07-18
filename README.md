@@ -4,8 +4,10 @@ on individual-based models.
 
 ##Setup
 
-to setup run:
+To setup, first download a local copy and then run
+```python
 python setup.py install
+```
 
 ##Introduction
 
@@ -29,11 +31,16 @@ and the results shown (using seaborn),
 ```python
 m.trace(plot=True)
 ```
+##Tutorials
+
+Two example tutorials accompany this package.
+* [ecology example](Tutorial_Ecology.ipynb)
+* [epidemiology example](Tutorial_Epidemiology.ipynb)
 
 ##Testing
 
 Tests are run using the ```python nose2 ``` package. To install run
-```python 
+```python
 pip install nose2
 pip install cov-core
 ```
@@ -42,4 +49,3 @@ and tests can be performed running the command
 ```python
 nose2 --with-coverage
 ```
-

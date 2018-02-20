@@ -57,11 +57,11 @@ def nbinSim(*ps):
     # ps[0] - mean of nbinom distribution
     # ps[1] - aggregation k factor.
     '''
-    p = ps[1]/(ps[1]+ps[0])
+    p = ps[0]/(ps[1]+ps[0])
     if p == 0:
         return np.zeros(1000)
     else:
-        return stats.nbinom(n=ps[1],p=p).rvs(size=1000)
+        return stats.nbinom(n=ps[0],p=p).rvs(size=1000)
 
 #define Sim function:
 sim = nbinSim#ibm.mfOutSim#
@@ -69,8 +69,8 @@ sim = nbinSim#ibm.mfOutSim#
 xs = sim(p0_true,p1_true,0)
 
 
-def update_progress(progress):
-    barLength = 10 # Modify this to change the length of the progress bar
+def update_progress(progress,barLength=10):
+     # Modify this to change the length of the progress bar
     status = ""
     if isinstance(progress, int):
         progress = float(progress)
@@ -84,7 +84,31 @@ def update_progress(progress):
         progress = 1
         status = "Done...\r\n"
     block = int(round(barLength*progress))
-    text = "\rProgress: [{0}] {1}% {2}".format( "#"*block + "-"*(barLength-block), progress*100, status)
+    text = "\rProgress: [{0}] {1:.1f}% {2}".format( "#"*block + "-"*(barLength-block), progress*100, status)
+    sys.stdout.write(text)
+    sys.stdout.flush()
+
+def update_progress_twotier(progress1,progress2,barLength1=10,barLength2=10):
+     # Modify this to change the length of the progress bar
+    status = ["", ""]
+    block = [0, 0]
+    progresses = [progress1,progress2]
+    for i,progress in enumerate(progresses):
+        if isinstance(progress, int):
+            progress = float(progress)
+        if not isinstance(progress, float):
+            progress = 0
+            status[i] = "error: progress var must be float\r\n"
+        if progress < 0:
+            progress = 0
+            status[i] = "Halt...\r\n"
+        if progress >= 1:
+            progress = 1
+            status[i] = "Done...\r\n"
+        block[0] = int(round(barLength1*progress[0]))
+        block[1] = int(round(barLength2*progress[1]))
+    text = "\rProgress 1: [{0}] {1}% {2}".format( "#"*block + "-"*(barLength1-block), progress1*100, status[0])
+    text += "\r\nProgress 2: [{0}] {1}% {2}".format( "#"*block + "-"*(barLength2-block), progress2*100, status[1])
     sys.stdout.write(text)
     sys.stdout.flush()
 
@@ -96,21 +120,29 @@ class ABC(object):
         self.res = None
         self.acc_dists = None
     ##
-    def setup(self,modelFunc=None,distFunc=None,tolerances=None,xs=None,priors=None):
+    def setup(self,modelFunc=None,distFunc=None,tolerances=None,xs=None,priors=None,method='Fixed',toln=None):
         '''
-        setup the ABC chain using wizard that guides you through process.
         setup the ABC chain defining as many things as required.
         '''
         '''TODO: Check data, check dist_func '''
-        if (tolerances is not None): self.parameters.tolerances = tols
+        if (tolerances is not None): self.parameters.tols = tolerances
         if (priors is not None): self.parameters.vs = priors
         if (modelFunc is not None): self.parameters.sim = modelFunc
         if (distFunc is not None): self.parameters.distFunc = distFunc
         if (xs is not None): self.parameters.xs = xs
+        if (method in ['Fixed','Adaptive']):
+            self.parameters.method = method
+            if(method is 'Adaptive'):
+                if(toln is not None):
+                    self.parameters.toln = toln
+                else:
+                    raise NameError('Need to define number of tolerances (toln) to use Adaptive method')
+        else:
+            raise NameError('{} not a recognised method for choosing tolerances. Use {} instead'.format(method,['Fixed','Adaptive']))
 
 
     ##
-    def fit(self,sample_size = 1000):
+    def fit(self,sample_size = 1000,tol_n=10,extreme=False):
         '''
         use dist_func to estimate distribution of errors from data xs
         outputs tolerances.
@@ -126,14 +158,19 @@ class ABC(object):
 
         if (es.size == 0):
             raise NameError('Couldn\'t find finite tolerance values. Priors must be way off.')
-        tols = np.linspace(np.percentile(es,2.5),np.percentile(es,97.5),num=10)
+        tols = np.linspace(np.min(es),np.max(es),num=tol_n)
         self.parameters.tols = tols[::-1]
+        if extreme:
+            self.parameters.tols = np.append(self.parameters.tols,self.parameters.tols[-1]*0.8)
+            self.parameters.tols = np.append(self.parameters.tols,self.parameters.tols[-1]*0.8)
         return self.parameters.tols
     ##
     def run(self,particle_num):
         '''
         # run the chain for n particles
         '''
+        if self.parameters.method == 'Adaptive':
+            self.parameters.tols = np.zeros(self.parameters.toln) #define length of tolerances to be filled by adaptive method.
         self.res,self.acc_dists = abcprcParralel(parameters=self.parameters,N=particle_num)
 
     def paramMAP(self):
@@ -151,9 +188,9 @@ class ABC(object):
     def fitSummary(self,percentiles=[2.5,97.5]):
         '''
         return the maximum a posteriori for each parameter once run.
-        Currently just using the mean. This needs to be improved.
+        Currently just using the median. This needs to be improved.
         '''
-        if self.res == None:
+        if self.res is None:
             raise NameError('Need to run first before returning results')
         results = {'p':[],'lc':[],'uc':[]}
         for i,r_param in enumerate(self.res):
@@ -166,10 +203,23 @@ class ABC(object):
             print 'param {} : {} ({},{}) '.format(i,p,lc,uc)
         return results
 
+    def postSample(self):
+        '''
+        draws a random sample from the posterior
+        '''
+        if self.res is None:
+            raise NameError('Need to run first before sampling from posterior')
+        n = self.res[0][0].size
+        r = np.random.randint(0,high=n)
+        samp = []
+        for p in self.res:
+            samp.append(p[-1][r])
+        return np.array(samp)
+
     ##
     def trace(self,plot=False,tol=-1):
         '''
-        produce trace of partciles once chain has been run. inlude plot boolean
+        produce trace of particles once chain has been run. include plot boolean
         '''
         if (self.res == None):
             raise NameError('No results. Use run() to generate posterior')
@@ -205,6 +255,7 @@ class ABC(object):
         self.parameters.tols = out['tolerances']
 
 
+
     '''
 
     private functions
@@ -218,6 +269,7 @@ class Parameters(object):
         - particle number
         - priors
         - tolerances
+        - method (for choosing tolerances).
         etc.
 
     '''
@@ -228,6 +280,8 @@ class Parameters(object):
         self.xs = xs #define data
         self.sim = sim #define simulation function.
         self.distFunc = distFunc
+        self.method = 'Fixed'
+        self.toln = None #Force user to define this in setup.
 
 
 ##
@@ -242,15 +296,32 @@ def abcprcParralel(parameters,N=N):
     dist_acc = np.zeros((parameters.tols.size,N)) #records distances accepted for each particle.
     p_num = len(pRecs)
 
-    for t, tol in enumerate(parameters.tols):
+    for t in range(len(parameters.tols)):
+        if parameters.method == 'Fixed':
+            pass
+        elif parameters.method == 'Adaptive':
+            if (t>0):
+                parameters.tols[t] = infpercentile(dist_acc[t-1,:],q=50.)
 
+        else:
+            raise NameError('Unknown method.')
+        print 'tol[{}] = {}'.format(t,parameters.tols[t])
         if (t==0):
             #initialise first particles from the priors v1,v2
             for i in range(p_num):
                 pRecs[i][0,:] = parameters.vs[i](size=N)
+            for i in range(N):
+                ps = []
+                for p in pRecs:
+                    ps.append(p[0,i])
+                ys = parameters.sim(*ps)
+                dist_acc[0,i] = parameters.distFunc(ys,parameters.xs)
+            if np.all(np.isinf(dist_acc[0,:])):
+                raise NameError("""All initial tolerances are infinite. Either priors are misspecified or number of particles needs to be extended.""")
+
 
         else:
-            parFunc = partial(particlesF,t,pRecs,parameters.tols,parameters.xs,
+            parFunc = partial(particlesF,t,pRecs,parameters.tols[t],parameters.xs,
                               parameters.sim,parameters.distFunc)
             try:
                 res = Parallel(n_jobs=num_cores)(delayed(parFunc)(i) for i in range(N))
@@ -267,7 +338,7 @@ def abcprcParralel(parameters,N=N):
             for i in range(p_num):
                 pRecs[i][t,:] = np.array([a[i] for a in res]).flatten()
             dist_acc[t,:] = np.array([a[p_num] for a in res]).flatten()
-        update_progress(float(t)/len(tols))
+        update_progress(float(t)/len(tols),barLength=len(tols))
 
 
     res = pRecs
@@ -318,7 +389,7 @@ def ABCPRC(tols=tols,N=N): #deprecated. Should probably remove, unless we want a
                 p1A[t,i] = a_star[0]
                 p2A[t,i] = a_star[1]
 
-        update_progress(float(t)/len(tols))
+        update_progress(float(t)/len(tols),barLength=len(tols))
 
     pool.close(); pool.join()
     res = {'p1': p1A, 'p2' : p2A}
@@ -337,24 +408,42 @@ def decorate(function):
         return function(ii,*args, **kwargs)
     return wrap_function
 
+def infpercentile(a,q=50.):
+    """
+    return percentile ignoring infinite values.
+    """
+    return np.percentile(a[~np.isinf(a)],q=50.)
+
 ##
 def distFunc(ys,xs):
     '''
     # Calculate distance between two empirical distributions.
-    # input: raw data.
+    # input parameters for model.
     # output: distance between generated data and data xs.
     '''
     if (np.sum(ys)==0):
         return np.inf
     else:
-        kernely = stats.gaussian_kde(ys)
-        kernelx = stats.gaussian_kde(xs)
-        xx = np.linspace(np.min(xs),np.max(xs)) #range over data.
-        return stats.entropy(kernelx(xx),qk=kernely(xx)) #KL-divergence.
+        if xs.ndim == 1:
+            kernely = stats.gaussian_kde(ys)
+            kernelx = stats.gaussian_kde(xs)
+            xx = np.linspace(np.min(xs),np.max(xs)) #range over data.
+            return stats.entropy(kernelx(xx),qk=kernely(xx)) #KL-divergence.
+        else:
+            #dimensions are (npoints,nparams) to keep consistent with sci-kit
+            #learn
+            kernely = stats.gaussian_kde(ys.T)
+            kernelx = stats.gaussian_kde(xs.T)
+            #range over n-dimensional data (npoints,nparams)
+            mesh = [np.linspace(np.min(xs[:,i]),np.max(xs[:,i]))
+                    for i in range(xs.shape[1])]
+            xx = np.meshgrid(*mesh)
+            xx = np.array([x.ravel() for x in xx]).T
+            return stats.entropy(kernelx(xx.T),qk=kernely(xx.T)) #KL-divergence.
 
 
 ##
-def particlesF(t,pRecs,tols,xs,sim,distFunc,ii):
+def particlesF(t,pRecs,tol,xs,sim,distFunc,ii):
     '''
     # Filter particles step.
     '''
@@ -362,19 +451,19 @@ def particlesF(t,pRecs,tols,xs,sim,distFunc,ii):
     np.random.seed()
     sys.stdout.flush()
     a_star = np.zeros(p_num)
-    rho = tols[t]+1.
+    rho = tol+1.
     N = np.size(pRecs[0],axis=1) #number of particles. Should check all pRec match.
-    n = 1000 #upper bound for number of samles rejected before raising error.
+    n = 1000 #upper bound for number of samples rejected before raising error.
     rejects = 0 #count number of rejects.
-    while(rho>tols[t] and rejects < n):
+    while(rho>tol and rejects < n):
         #FIXED: if no particles are accepted after a number of steps tolerance may be too low
         # fix by adding condition to raise error after n particles being rejected.
         r = np.random.randint(0,high=N)
         for i in range(p_num):
-            if pRecs[i][t-1,r] > 0:
+            if (pRecs[i][t-1,r] > 0):
                 a_star[i] = stats.gamma.rvs(pRecs[i][t-1,r]/rw_var,scale=rw_var)#p1A[t-1,r] + stats.norm.rvs(scale=0.1)
             else:
-                a_star[i] = stats.expon(scale=10E-3).rvs()
+                a_star[i] = stats.expon(scale=0.1).rvs()
         ys = sim(*a_star)#sim(a_star[0],a_star[1],ii)
         rho = distFunc(ys,xs)
         rejects += 1
@@ -400,7 +489,7 @@ def matPlot(res,tol=-1):
             if (i == j):
                 ax[i][j].hist(res[i][tol,:],range=ranges[i])
             else:
-                ax[i][j].plot(res[j][tol,:],res[i][tol,:],'bo')
+                ax[i][j].plot(res[j][tol,:],res[i][tol,:],'bo',alpha=0.5)
                 ax[i][j].set_xlim(ranges[j])
                 ax[i][j].set_ylim(ranges[i])
             if i!=(pLen-1):

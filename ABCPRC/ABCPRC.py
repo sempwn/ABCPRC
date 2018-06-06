@@ -36,11 +36,6 @@ p1_true = v2()
 vs = [v1,v2] #prior distribution random variable functions.
 rw_var = 0.01
 
-#generate some fake data
-##
-# Test bimodal model.
-#ps[0] - peak of first Gaussian
-#ps[1] - peak of second Gaussian
 def biModSim(*ps):
     xs = np.zeros(1000)
     for i in range(xs.size):
@@ -124,7 +119,7 @@ class ABC(object):
         '''
         setup the ABC chain defining as many things as required.
         '''
-        '''TODO: Check data, check dist_func '''
+
         if (tolerances is not None): self.parameters.tols = tolerances
         if (priors is not None): self.parameters.vs = priors
         if (modelFunc is not None): self.parameters.sim = modelFunc
@@ -178,7 +173,7 @@ class ABC(object):
         return the maximum a posteriori for each parameter once run.
         Currently just using the mean. This needs to be improved.
         '''
-        if self.res == None:
+        if self.res is None:
             raise NameError('Need to run first before returning results')
         results = []
         for r_param in self.res:
@@ -200,7 +195,7 @@ class ABC(object):
             results['p'].append(p)
             results['lc'].append(lc)
             results['uc'].append(uc)
-            print 'param {} : {} ({},{}) '.format(i,p,lc,uc)
+            print('param {} : {} ({},{}) '.format(i,p,lc,uc))
         return results
 
     def postSample(self):
@@ -221,7 +216,7 @@ class ABC(object):
         '''
         produce trace of particles once chain has been run. include plot boolean
         '''
-        if (self.res == None):
+        if self.res is None:
             raise NameError('No results. Use run() to generate posterior')
         else:
             # TODO: add plotting functionality. Ability to return parameter fits at different
@@ -235,7 +230,7 @@ class ABC(object):
         '''
         save main results from runs to file as .npz. Use load to load file.
         '''
-        if (self.res == None):
+        if self.res is None:
             raise NameError('Can\'t save without results. Use run() first before saving.')
 
         np.savez(filename,res=self.res,acc_dists=self.acc_dists,
@@ -305,7 +300,7 @@ def abcprcParralel(parameters,N=N):
 
         else:
             raise NameError('Unknown method.')
-        print 'tol[{}] = {}'.format(t,parameters.tols[t])
+        print('tol[{}] = {}'.format(t,parameters.tols[t]))
         if (t==0):
             #initialise first particles from the priors v1,v2
             for i in range(p_num):
@@ -326,10 +321,10 @@ def abcprcParralel(parameters,N=N):
             try:
                 res = Parallel(n_jobs=num_cores)(delayed(parFunc)(i) for i in range(N))
             except KeyboardInterrupt:
-                print 'got ^C while pool mapping'
+                print('got ^C while pool mapping')
 
-            except Exception, e:
-                print 'got exception: %r' % (e,)
+            except Exception as e:
+                print('got exception: %r' % (e,))
 
                 exc_type, exc_obj, exc_tb = sys.exc_info()
                 fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
@@ -377,7 +372,7 @@ def ABCPRC(tols=tols,N=N): #deprecated. Should probably remove, unless we want a
             a_star = np.zeros(params)
             for i in range(N):
                 #TODO: implenet parralel bit here
-                print 't = {}. i = {}'.format(t,i)
+                print('t = {}. i = {}'.format(t,i))
                 #random sample from previous alpha with perturbation
                 rho = tols[t]+1.
                 while(rho>tols[t]):

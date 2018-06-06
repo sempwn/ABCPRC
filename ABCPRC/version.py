@@ -62,4 +62,4 @@ VERSION = __version__
 PACKAGES = ['ABCPRC',
             'ABCPRC.tests']
 PACKAGE_DATA = {'ABCPRC': []}
-REQUIRES = ["numpy","pandas","seaborn","matplotlib.pyplot"]
+REQUIRES = ["numpy","pandas","seaborn","matplotlib.pyplot","joblib"]
